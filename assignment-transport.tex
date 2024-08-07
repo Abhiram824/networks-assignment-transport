@@ -1,6 +1,7 @@
 \documentclass{article}
 
 \usepackage{hyperref}
+\usepackage{url}
 
 \begin{document}
 
@@ -12,23 +13,38 @@ In addition, it is risky to send a lot of packets at once. First, the network ma
 
 \begin{enumerate}
 \item The receiver allocates a block of memory in which to store the received data. This is called the receive buffer. Data is added to it when packets arrive and removed when it delivers bytes to the application. Once data has been given to the application, it is the application's responsibility to maintain it if necessary. The transport layer is free to delete those bytes. In a real transport protocol like TCP, the receiver continually updates the amount of free memory in its receive buffer through a dedicated field in the acknowledgment packet. This process is described in the ``Flow control'' paragraph of \hyperref[section 5.2.4]{https://book.systemsapproach.org/e2e/tcp.html#sliding-window-revisited} in the book.
-\item To ensure that we do not overload the network (too much) and create excessive packet loss and delay, a second algorithm continually adjusts the receive window, except in this case it is called the ``congestion window''. This algorithm is called a ``congestion control algorithm (CCA)'' and typically runs on the sender. CCAs \emph{guess} the available network bandwidth, accounting for not only the network capacity, but also any other flows that may be sharing the same capacity. This is a hard problem because, in order to do so, it must contend with the large diversity of links on modern networks and the fact that it can never explicitly communicate with the other flows sharing the bandwidth. Since it is also a critical part of the infrastructure of the internet, CCAs have been the subject of intense research for forty years. Your instructor has, perhaps foolishly, spent a large fraction of his career trying to solve, or at least understand, the problem. The basics of congestion control are discussed in \hyperref[chapter 6]{https://book.systemsapproach.org/e2e/tcp.html#sliding-window-revisited} of the book.
+\item To ensure that we do not overload the network and create excessive packet loss and delay, a second algorithm continually adjusts the receive window, except in this case it is called the ``congestion window''. This algorithm is called a ``congestion control algorithm (CCA)'' and typically runs on the sender. CCAs \emph{guess} the available network bandwidth, accounting for not only the network capacity, but also any other flows that may be sharing the same capacity. This is a hard problem because, in order to do so, it must contend with the large diversity of links on modern networks and the fact that it can never explicitly communicate with the other flows sharing the bandwidth. Since it is also a critical part of the infrastructure of the internet, CCAs have been the subject of intense research for forty years. Your instructor has, perhaps foolishly, spent a large fraction of his career trying to solve, or at least understand, the problem. The basics of congestion control are discussed in \hyperref[chapter 6]{https://book.systemsapproach.org/e2e/tcp.html#sliding-window-revisited} of the book.
 \end{enumerate}
 
-In this assignment, we will use the User Datagram Protocol (UDP) to transmit packets. UDP is a lightweight transport protocol that augments the IP layer with send and receive ports (plus a checksum and length which will not concern us in this assignment). These ports tell the operating system to which program it should deliver the packets. The skeleton code to set up UDP sockets is already provided in the github repository.
+In this assignment, we will use the User Datagram Protocol (UDP) to transmit packets. UDP is a lightweight transport protocol that augments the IP layer with send and receive ports (plus a checksum and length which will not concern us in this assignment). These ports tell the operating system to which program it should deliver the packets. The skeleton code to set up UDP sockets is already provided in the github repository: \url{https://github.com/venkatarun95/networks-assignment-transport}. It is possible to directly create IP packets, but it is painful and requires special permissions from the OS and a mechanism, like the port numbers, to decide which application to which we should deliver the data.
 
-Additional features
-- Deliver packets asap
-- Delete sent data once it is acknowledged
-- Could have created IP packets directly, but that would have involved some annoying plumbing
-- Receive window
+TCP assigns each byte a sequence number represented as a 32-bit integer. This allows for $\sim 4$ billion separate sequence numbers which allows it to assign a unique number to $\sim 4$ giga bytes of data. Thus it has mechanisms for what to do when it wraps around (plus some security reasons). While practically important, this mechanism is complicated and not very intellectually interesting. Thus, in this assignment, we will ignore this issue and assume that sequence numbers can be arbitrarily large and nobody is trying to attack us. For us, the first byte will start with a sequence number of zero and the rest increment from there.
+
+TCP packets have a standardized \href[header format]{https://en.wikipedia.org/wiki/Transmission_Control_Protocol#TCP_segment_structure} where the role of each bit in the first 40-80 bytes that constitute the header is well defined. You should take a look at what it looks like. However, in this assignment, we will serialize information using json to keep debugging and serializing/deserializing simple.
+
+Data packets contain the following fields: Sequence number of the first byte, sequnce number of the last byte + 1, the data
+
+Acknowledgement packets contain 1) the sequence numbers that were received just now and 2) a single list of \emph{ranges} of sequence numbers that have been received. They tell the sender which bytes have been received. We use ranges because, in the common case, bytes are delivered in sequence and thus can be represented with a very small number of ranges. If there is no loss or packet reordering, a single range suffices. We illustrate this with an example:
+
+\begin{itemize}
+\item If packets containing data with sequence numbers 0-100, 100-200, 500-600, and 300-400, 700-800 have been received, the receiver will send the list {\tt [0-200, 300-400, 500-600, 700-800]}
+\item Now, if packets with sequence numbers 200-300 and 400-500 are received, the receiver sends a list with just a single range: {\tt [0-600, 700-800]}
+\end{itemize}
+
+\noindent\textbf{Tangent:} The TCP header only includes space for up to three ranges. These are called SACKs (selective ACKnowledgments) This is because bits were scarce when the internet was first designed.\footnote{This is also why we decided to only include 32 bits for the IP addresses because, obviously, the internet will never have more than 4 billion devices right? To this date, the new version of IP, called IPv6, has not been fully deployed. It was standardized very recently... in 1998} Things have changed in the 21st century, and a new transport protocol is becoming popular: QUIC. Like our toy transport layer, also operates on top of UDP and allows for arbitrarily many ranges.\footnote{QUIC also assigns unique numbers to each packet is sent. This helps it measure the round trip time more accurately. We do not bother doing that.} It is rare for protocol-level changes to occur on the internet, since many different programs and hardware have to support it in order for it to work. QUIC is an exception because it was developed and promoted by Google, who controlled both ends of the transport layer: the browser (through Google Chrome) and their web services. After Google's initial push, it has now been standardized by the IETF and adopted by many people.
+
+Unlike TCP, we do not implement a handshake since we assume the receive window is constant and pre-allocated and that the sequence numbers start from 0. To terminate the connection, the sender sends a special packet. The starter code handles this
+
+Your assignment is to fill in the places in the starter code marked as {\tt TODO} and implement the logic that decides what sequence numbers to transmit next and what ranges to acknowledge. This logic is surprisingly tricky to get right because there are a few corner cases to consider. So be careful! Note that you are responsible for understanding the starter code in addition to what you write, since some of the ideas might come in handy for you in the future.
+
+In the end, you will have a program that can transmit bytes over an unreliable network. For testing purposes, you will be using the Mahimahi emulator to emulate a network without needing access to multiple computers. Mahimahi only works on Linux, which means that you will have to either use a local Linux installation or VM. Alternately, you can use a machine from cloud lab as you learned in the first assignment.
 
 \begin{comment}
   Assignment plan
   - 1 Connect to cloud lab. Use netcat to connect to example.com and download the HTML. Do the same by using python sockets. Using sockets, create a very very simple python web server that compares input to a given string and response
   - 2 Create a transport layer that uses UDP to send packets
   - 3 Implement a routing algorithm
-  - 4 Play with wireshark. Inspect ARP packets, TCP packets, and try to follow HTTP connections. See what others in your wifi network are u
+  - 4 Play with wireshark. Inspect ARP packets, TCP packets, and try to follow HTTP connections. See what others in your wifi network are using. Can you read their private messages? Why not?
   - 5 Secure communication over the internet
 \end{comment}
 
