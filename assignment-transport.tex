@@ -1,0 +1,35 @@
+\documentclass{article}
+
+\usepackage{hyperref}
+
+\begin{document}
+
+\section{Introduction}
+
+In this assignment, you will create a custom transport layer program that provides reliable data delivery to higher layers. It consists of a sender and a receiver connected over a network link. The sender will take a large arbitrarily sized message, and sends it to a receiver after breaking it down into packets that are at most 1500 bytes long. On the way, packets may get delayed and lost, or arrive at the receiver in a different order from which they were sent. The receiver reconstructs the message from these packets. In addition, for each packet received, it sends a packet acknowledging the receipt of all the data packets that have been received so far. The sender uses these acknowledgments to guess which packets have been lost and retransmits them.
+
+In addition, it is risky to send a lot of packets at once. First, the network may not be able to handle the load and drop/delay the packets. Second, the receiver may not have enough memory to store all the incoming data and might have to discard some of it. This is solved by having a ``receive window'' that limits the maximum number of bytes that can be ``in flight'' at any given time. A byte is in flight if it has been sent, but not yet acknowledged or assumed to be lost. In this assignment, we will treat the receive window as a constant. In a real transport stack, it varies with time as follows.
+
+\begin{enumerate}
+\item The receiver allocates a block of memory in which to store the received data. This is called the receive buffer. Data is added to it when packets arrive and removed when it delivers bytes to the application. Once data has been given to the application, it is the application's responsibility to maintain it if necessary. The transport layer is free to delete those bytes. In a real transport protocol like TCP, the receiver continually updates the amount of free memory in its receive buffer through a dedicated field in the acknowledgment packet. This process is described in the ``Flow control'' paragraph of \hyperref[section 5.2.4]{https://book.systemsapproach.org/e2e/tcp.html#sliding-window-revisited} in the book.
+\item To ensure that we do not overload the network (too much) and create excessive packet loss and delay, a second algorithm continually adjusts the receive window, except in this case it is called the ``congestion window''. This algorithm is called a ``congestion control algorithm (CCA)'' and typically runs on the sender. CCAs \emph{guess} the available network bandwidth, accounting for not only the network capacity, but also any other flows that may be sharing the same capacity. This is a hard problem because, in order to do so, it must contend with the large diversity of links on modern networks and the fact that it can never explicitly communicate with the other flows sharing the bandwidth. Since it is also a critical part of the infrastructure of the internet, CCAs have been the subject of intense research for forty years. Your instructor has, perhaps foolishly, spent a large fraction of his career trying to solve, or at least understand, the problem. The basics of congestion control are discussed in \hyperref[chapter 6]{https://book.systemsapproach.org/e2e/tcp.html#sliding-window-revisited} of the book.
+\end{enumerate}
+
+In this assignment, we will use the User Datagram Protocol (UDP) to transmit packets. UDP is a lightweight transport protocol that augments the IP layer with send and receive ports (plus a checksum and length which will not concern us in this assignment). These ports tell the operating system to which program it should deliver the packets. The skeleton code to set up UDP sockets is already provided in the github repository.
+
+Additional features
+- Deliver packets asap
+- Delete sent data once it is acknowledged
+- Could have created IP packets directly, but that would have involved some annoying plumbing
+- Receive window
+
+\begin{comment}
+  Assignment plan
+  - 1 Connect to cloud lab. Use netcat to connect to example.com and download the HTML. Do the same by using python sockets. Using sockets, create a very very simple python web server that compares input to a given string and response
+  - 2 Create a transport layer that uses UDP to send packets
+  - 3 Implement a routing algorithm
+  - 4 Play with wireshark. Inspect ARP packets, TCP packets, and try to follow HTTP connections. See what others in your wifi network are u
+  - 5 Secure communication over the internet
+\end{comment}
+
+\end{document}
