@@ -105,19 +105,29 @@ class Sender:
         '''
 
         # TODO
-        return (0, payload_length)
+        return (0, payload_size)
 
 def start_receiver(ip: str, port: int):
     '''Starts a receiver thread. For each source address, we start a new
     `Receiver` class. When a `fin` packet is received, we call the
     `finish` function of that class.
     
-    We start listening on the given IP address and port. By setting the
-    IP address to be `0.0.0.0`, you can make it listen on all
+    We start listening on the given IP address and port. By setting
+    the IP address to be `0.0.0.0`, you can make it listen on all
     available interfaces. A network interface is typically a device
     connected to a computer that interfaces with the physical world to
     send/receive packets. The WiFi and ethernet cards on personal
-    computers are examples of physical interfaces.
+    computers are examples of physical interfaces. 
+
+    Sometimes, when you start listening on a port and the program
+    terminates incorrectly, it might not release the port
+    immediately. It might take some time for the port to become
+    available again, and you might get an error message saying that it
+    could not bind to the desired port. In this case, just pick a
+    different port. The old port will become available soon. Also,
+    picking a port number below 1024 usually requires special
+    permission from the OS. Pick a larger number. Numbers in the
+    8000-9000 range are conventional.
     
     Virtual interfaces also exist. The most common one is `localhost',
     which has the default IP address of `127.0.0.1` (a universal
@@ -135,10 +145,11 @@ def start_receiver(ip: str, port: int):
             
         while True:
             data, addr = server_socket.recvfrom(packet_size)
+            print(data, addr, receivers)
             if addr not in receivers:
                 receivers[addr] = Receiver()
                 
-            received = json.parse(data.decode())
+            received = json.loads(data.decode())
             if received["type"] == "data":
                 # Format check. Real code will have much more
                 # carefully designed checks to defend against
@@ -146,7 +157,7 @@ def start_receiver(ip: str, port: int):
                 # transport layer and cause problems at the receiver?
                 # This is just for fun. It is not required as part of
                 # the assignment.
-                assert type(received["seq"]) is tuple
+                assert type(received["seq"]) is list
                 assert type(received["seq"][0]) is int and type(received["seq"][1]) is int
                 assert type(received["payload"]) is str
                 assert len(received["payload"]) <= payload_size
@@ -158,27 +169,25 @@ def start_receiver(ip: str, port: int):
                 # a byte structure given the data structure. However,
                 # for an internet standard, we usually want something
                 # more custom and hand-designed.
-                sacks, app_data = receivers[addr].data_packet(received["seq"], received["payload"])
+                sacks, app_data = receivers[addr].data_packet(tuple(received["seq"]), received["payload"])
                 # Note: we immediately print the data. This should be the ONLY output of the program
                 print(app_data)
 
                 # Send the ACK
-                server_socket.sendto(json.dumps({"type": "ack", "sacks": sacks}).encode(), addr)
+                server_socket.sendto(json.dumps({"type": "ack", "sacks": sacks, "acked": received["seq"]}).encode(), addr)
                 
                     
             elif received["type"] == "fin":
                 receivers[addr].finish()
                 del receivers[addr]
                 
-            server_socket.sendto(response.encode(), addr)
-
-def start_sender(ip: str, port: int, data: bytes, recv_window: int):
+def start_sender(ip: str, port: int, data: str, recv_window: int):
     sender = Sender(len(data))
     
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client_socket:
         # When waiting for packets when we call receivefrom, we
         # shouldn't wait more than 500ms
-        socket.settimeout(0.5)
+        socket.timeout(0.5)
 
         # Number of bytes that we think are inflight. We are only
         # including payload bytes here, which is different from how
@@ -198,7 +207,7 @@ def start_sender(ip: str, port: int, data: bytes, recv_window: int):
                 assert seq[1] <= len(data)
                 client_socket.sendto(
                     json.dumps(
-                        {"type": "data", "seq": seq, "data": data[seq[0]:seq[1]]}
+                        {"type": "data", "seq": seq, "payload": data[seq[0]:seq[1]]}
                     ).encode(),
                     (ip, port))
 
@@ -206,12 +215,12 @@ def start_sender(ip: str, port: int, data: bytes, recv_window: int):
             else:
                 # Wait for ACKs
                 try:
-                    received, addr = server_socket.recvfrom(packet_size)
-                    print("Received from: ", addr, type(addr))
+                    received, addr = client_socket.recvfrom(packet_size)
+                    print("Received from: ", addr, type(addr), received)
                     if addr != ip:
                         continue
 
-                    received = json.parse(received)
+                    received = json.loads(received.decode())
                     assert received["type"] == "data"
                     sender.ack_packet(received.sacks)
 
@@ -233,15 +242,15 @@ def main():
     args = parser.parse_args()
     
     if args.role == "receiver":
-        start_server(args.ip, args.port)
+        start_receiver(args.ip, args.port)
     else:
-        if "sendfile" not in args.__dict__:
+        if args.sendfile is None:
             print("No file to send")
             return
 
-        with open(args.sendfile, 'rb') as f:
+        with open(args.sendfile, 'r') as f:
             data = f.read()
-            start_client(args.ip, args.port, data, args.recv_window)
+            start_sender(args.ip, args.port, data, args.recv_window)
 
 if __name__ == "__main__":
     main()
