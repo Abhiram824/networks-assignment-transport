@@ -1,5 +1,5 @@
 import argparse
-#import lorem
+import lorem
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tool to generate the given amount of data")

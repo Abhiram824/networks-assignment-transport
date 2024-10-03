@@ -31,21 +31,55 @@ Acknowledgement packets contain 1) the sequence numbers that were received just 
 \item Now, if packets with sequence numbers 200-300 and 400-500 are received, the receiver sends a list with just a single range: {\tt [0-600, 700-800]}
 \end{itemize}
 
-\noindent\textbf{Tangent:} The TCP header only includes space for up to three ranges. These are called SACKs (selective ACKnowledgments) This is because bits were scarce when the internet was first designed.\footnote{This is also why we decided to only include 32 bits for the IP addresses because, obviously, the internet will never have more than 4 billion devices right? To this date, the new version of IP, called IPv6, has not been fully deployed. It was standardized very recently... in 1998} Things have changed in the 21st century, and a new transport protocol is becoming popular: QUIC. Like our toy transport layer, also operates on top of UDP and allows for arbitrarily many ranges.\footnote{QUIC also assigns unique numbers to each packet is sent. This helps it measure the round trip time more accurately. We do not bother doing that.} It is rare for protocol-level changes to occur on the internet, since many different programs and hardware have to support it in order for it to work. QUIC is an exception because it was developed and promoted by Google, who controlled both ends of the transport layer: the browser (through Google Chrome) and their web services. After Google's initial push, it has now been standardized by the IETF and adopted by many people.
+\noindent\textbf{Tangent:} The TCP header only includes space for up to three ranges. These are called SACKs (selective ACKnowledgments) This is because bits were scarce when the internet was first designed.\footnote{This is also why we decided to only include 32 bits for the IP addresses because, obviously, the internet will never have more than 4 billion devices right? To this date, the new version of IP, called IPv6, has not been fully deployed. It was standardized very recently... in 1998} Things have changed in the 21st century, and a new transport protocol is becoming popular: QUIC. Like our toy transport layer, QUIC also operates on top of UDP and allows for arbitrarily many ranges.\footnote{QUIC also assigns unique numbers to each packet is sent. This helps it measure the round trip time more accurately. We do not bother doing that.} It is rare for protocol-level changes to occur on the internet, since many different programs and hardware have to support it in order for it to work. QUIC is an exception because it was developed and promoted by Google, who controlled both ends of the transport layer: the browser (through Google Chrome) and the servers of their web services. After Google's initial push, it has now been standardized by the IETF and adopted by many people.
 
 Unlike TCP, we do not implement a handshake since we assume the receive window is constant and pre-allocated and that the sequence numbers start from 0. To terminate the connection, the sender sends a special packet. The starter code handles this
 
-Your assignment is to fill in the places in the starter code marked as {\tt TODO} and implement the logic that decides what sequence numbers to transmit next and what ranges to acknowledge. This logic is surprisingly tricky to get right because there are a few corner cases to consider. So be careful! Note that you are responsible for understanding the starter code in addition to what you write, since some of the ideas might come in handy for you in the future.
+Your assignment is to fill in the places in the starter code marked as {\tt TODO} and implement the logic that decides what sequence numbers to transmit next and what ranges to acknowledge. This logic is surprisingly tricky to get right because there are a few corner cases to consider. So be careful! Note: as in the previous assignment, it is ok to use inefficient datastructures and algorithms if it makes coding simpler (within reason).
 
-In the end, you will have a program that can transmit bytes over an unreliable network. For testing purposes, you will be using the Mahimahi emulator to emulate a network without needing access to multiple computers. Mahimahi only works on Linux, which means that you will have to either use a local Linux installation or VM. Alternately, you can use a machine from cloud lab as you learned in the first assignment.
+\noindent\textbf{Bonus:} In the main component of the assignment, you may assume that packets are dropped, but never reordered. You will get 20\% bonus points if your code can also handle packet reordering.
+
+In addition to what you write, you should understand the starter code as well. It has some ideas that might come in handy for you in the future.
+
+\section{Running the code}
+
+In the end, you will have a program that can transmit bytes over an unreliable network. To run it, you should first generate a file to send. You can pick any pure-text file you like, or you can generate one of the desired size using the command:
+
+\begin{verbatim}
+python3 generate_bogus_text.py 1000000 >test_file.txt
+\end{verbatim}
+
+The input specifies the length of the file to generate. We recommend using at least 1 million. The next step is to start the receiver so that it can listen for incoming connections using the following command:
+
+\begin{verbatim}
+python3 transport.py --ip localhost --port 7000 receiver
+\end{verbatim}
+
+Note: you can use any IP address and port you like. The above choices are useful for testing on your local machine. Now, you can run the server to transmit the test file you just generated (here, {\tt test_file.txt}) as follows:
+
+\begin{verbatim}
+python3 transport.py --ip localhost --port 7000 --sendfile test_file.txt sender
+\end{verbatim}
+
+We are providing two ways to test your code: 1) a built-in emulator that randomly drops/reorders packets before sending them and 2) the Mahimahi network emulator. For this assignment, option 1 suffices. Mahimahi will be necessary for the next one.
+
+To use the built-in emulator, just add the option {\tt --simloss 0.1} to simulate a 10\% packet loss. You should test your code with a range of losses including for example, 0, 0.01, 0.1, 0.9, 0.99. A good transport protocol should offer reliability no matter what.
+
+Mahimahi is a network emulator that emulates many different types of network links without needing access to multiple computers. Mahimahi only works on Linux, which means that you will have to either use a local Linux installation or a VM. Alternately, you can use a machine from cloud lab as you learned in the first assignment. You can learn how to use it here: \href{http://mahimahi.mit.edu}. For this assignment, you only want a shell that can create packet losses. Thus, you should run:
+
+\begin{verbatim}
+mm-loss uplink 0.1
+\end{verbatim}
+
+This will create a \emph{new} shell environment. The prompt on your shell will change to indicate this. Any further commands you run will run \emph{inside} the shell. This way, any packets leaving the shell will get dropped. You should run the receiver in a separate terminal \emph{outside} the shell and the sender \emph{inside} it. To make the receiver listen to all packets at all interfaces, use the IP address {\tt 0.0.0.0}. To the sender, give the IP address stored in the environment variable {\tt \$MAHIMAHI_BASE_IP}\footnote{To figure out what the value is, you can run {\tt echo \$MAHIMAHI_BASE_IP}. Usually, it is {\tt 100.64.0.1}.
 
 \begin{comment}
   Assignment plan
-  - 1 Connect to cloud lab. Use netcat to connect to example.com and download the HTML. Do the same by using python sockets. Using sockets, create a very very simple python web server that compares input to a given string and response
+  - 1 Mini: Connect to cloud lab. Use netcat to connect to example.com and download the HTML. Do the same by using python sockets. Using sockets, create a very very simple python web server that compares input to a given string and responds
   - 2 Create a transport layer that uses UDP to send packets
-  - 3 Implement a routing algorithm
-  - 4 Play with wireshark. Inspect ARP packets, TCP packets, and try to follow HTTP connections. See what others in your wifi network are using. Can you read their private messages? Why not?
-  - 5 Secure communication over the internet
+  - 3 Congestion control + congestion collapse
+  - 4 Implement a routing algorithm
+  - 6 Play with wireshark. Inspect ARP packets, TCP packets, and try to follow HTTP connections. See what others in your wifi network are using. Can you read their private messages? Why not? Secure communication over the internet. Required: DH key exchange, optional: TLS
 \end{comment}
 
 \noindent\textbf{Gradescope Uploads: after you write your codes in transport.py, upload that file into the Gradescope. Your code should have complete Receiver & Sender classes.}

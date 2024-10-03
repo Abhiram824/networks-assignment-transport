@@ -1,6 +1,7 @@
 import argparse
 import json
-from typing import Dict, List, Tuple
+import random
+from typing import Dict, List, Optional, Tuple
 import socket
 
 # Note: In this starter code, we annotate types where
@@ -54,7 +55,7 @@ class Receiver:
         data has already been sent to the application at this
         point. If not, there is a bug in the code. A real transport
         stack will deallocate the receive buffer. Note, this may not
-        be called if the fin packet from the sender is locked. You can
+        be called if the fin packet from the sender is lost. You can
         read up on "TCP connection termination" to know more about how
         TCP handles this.
 
@@ -75,7 +76,7 @@ class Sender:
         # sent, acknowledged, detected to be lost or retransmitted
         pass
 
-    def timeout(self, packet_id: int):
+    def timeout(self):
         '''Called when the sender times out.'''
         # TODO: Read the relevant code in `start_sender` to figure out
         # what you should do here
@@ -97,15 +98,15 @@ class Sender:
         # TODO
         return 0
 
-     def send(self, packet_id: int) -> Optional[Tuple[int, int]]:
-        '''Called just before we are going to send a data packet. Should
-        return the range of sequence numbers we should send. If there
-        are no more bytes to send, returns a zero range (i.e. the two
-        elements of the tuple are equal). Returns None if there are no
-        more bytes to send, and _all_ bytes have been
-        acknowledged. Note: The range should not be larger than
-        `payload_size` or contain any bytes that have already been
-        acknowledged
+    def send(self, packet_id: int) -> Optional[Tuple[int, int]]:
+        '''Called just before we are going to send a data
+         packet. Should return the range of sequence numbers we should
+         send. If there are no more bytes to send, returns a zero
+         range (i.e. the two elements of the tuple are equal). Returns
+         None if there are no more bytes to send, and _all_ bytes have
+         been acknowledged. Note: The range should not be larger than
+         `payload_size` or contain any bytes that have already been
+         acknowledged
 
         '''
 
