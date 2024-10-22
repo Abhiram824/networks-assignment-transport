@@ -85,8 +85,11 @@ This will create a \emph{new} shell environment. The prompt on your shell will c
 
 \noindent\textbf{Gradescope Uploads: after you write your codes in transport.py, upload that file into the Gradescope. Your code should have complete Receiver and Sender classes.}
 
-\subsection{Update: Packet reordering feature}
-We additionally add one more parameter called {\tt --pkts\_to\_reorder} that adjusts the number of packets to be randomly reordered. For example, if you set {\tt --pkts\_to\_reorder 5} to the simulator, this represents that 5 consecutive packets will be shuffled. The default option of not shuffling is {\tt 1}. To get 20\% bonus points, you need to test your simulator with a value greater than {\tt 1} for this parameter. \textbf{\textcolor{red}{Important!!!}} Note that the {starter\_code} has changed to support this, so please use the latest {starter\_code}.
+\subsection{Update: Packet reordering}
+
+We add one more parameter called {\tt --pkts\_to\_reorder} that adjusts the number of packets to be randomly reordered. For example, if you set {\tt --pkts\_to\_reorder 5} to the simulator, this represents that 5 consecutive packets will be shuffled. The default option of not shuffling is {\tt 1}. To get 20\% bonus points, you need to test your simulator with a value greater than {\tt 1} for this parameter. If you do not want the bonus points, you may assume that packets may be lost but are never reordered.
+
+\textbf{\textcolor{red}{Important!!!}} Note that the {starter\_code} has changed to support this, so please use the latest {starter\_code}.
 
 
 \end{document}
