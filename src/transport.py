@@ -3,6 +3,7 @@ import json
 from typing import Dict, List, Optional, Tuple
 import random
 import socket
+from enum import Enum
 
 # Note: In this starter code, we annotate types where
 # appropriate. While it is optional, both in python and for this
@@ -17,6 +18,8 @@ packet_size = 1500
 class Receiver:
     def __init__(self):
         # TODO: Initialize any variables you want here, like the receive buffer
+        self.buffer: List[Tuple[int, int, str]] = []
+        self.last_user_ack = 0
         pass
 
     def data_packet(self, seq_range: Tuple[int, int], data: str) -> Tuple[List[Tuple[int, int]], str]:
@@ -46,9 +49,31 @@ class Receiver:
         program.
 
         '''
+        print("seq_range", seq_range)
+        prev_ack = self.last_user_ack
+        self.buffer.append((seq_range[0], seq_range[1], data))
+        self.buffer = sorted(self.buffer, key= lambda x: x[0])
+        remove_idxs = []
+        data_sent = ""
+        for i, packet in enumerate(self.buffer):
+            if packet[0] > self.last_user_ack:
+                break
+            else: 
+                data_sent += packet[2]
+                self.last_user_ack = packet[1]
+                remove_idxs.append(i)
+                
+        self.buffer = [pkt for i, pkt in enumerate(self.buffer) if i not in remove_idxs]
 
-        # TODO
-        return ([0, 0], '')  # Replace this
+        sent = [(prev_ack, self.last_user_ack)] if self.last_user_ack != prev_ack else []
+        for interval in self.buffer:
+            assert interval[0] < interval[1]
+            sent.append((interval[0], interval[1]))
+
+        return (sent, data_sent)
+
+        
+        # return ([0, 0], '')  # Replace this
 
     def finish(self):
         '''Called when the sender sends the `fin` packet. You don't need to do
@@ -65,6 +90,11 @@ class Receiver:
         # TODO
         pass
 
+class sender_status(Enum):
+    FLIGHT = 0
+    ACKED = 1
+    NOT_SENT = 2
+
 
 class Sender:
     def __init__(self, data_len: int):
@@ -76,14 +106,24 @@ class Sender:
         # TODO: Initialize any variables you want here, for instance a
         # data structure to keep track of which packets have been
         # sent, acknowledged, detected to be lost or retransmitted
+        self.data_len = data_len
+        pkts = data_len//payload_size
+        if pkts%payload_size != 0: pkts+=1
+
+        self.pkt_tracker = {}
+
+        for i in range(0, pkts):
+            self.pkt_tracker[(i*payload_size, min((i+1)*payload_size, self.data_len))] = sender_status.NOT_SENT
+
         pass
 
     def timeout(self):
         '''Called when the sender times out.'''
         # TODO: Read the relevant code in `start_sender` to figure out
         # what you should do here
-
-        pass
+        for pkt, status in self.pkt_tracker.items():
+            if status == sender_status.FLIGHT:
+                self.pkt_tracker[pkt] = sender_status.NOT_SENT
 
     def ack_packet(self, sacks: List[Tuple[int, int]], packet_id: int) -> int:
         '''Called every time we get an acknowledgment. The argument is a list
@@ -96,9 +136,53 @@ class Sender:
         600, even if 1000s of bytes have been ACKed before this.
 
         '''
+        print(sacks)
+        increments = []
+        for seq in sacks:
+            if seq[1]-seq[0] > payload_size:
+                diff = seq[1]-seq[0]
+                start = seq[0]
+                while diff > payload_size:
+                   diff -= payload_size
+                   increments.append((start, start+payload_size))
+                   start += payload_size
+                increments.append((start, seq[1]))
+            else:
+                increments.append(seq)
+
+        acked = 0
+
+        for pkt in increments:
+            cur = (pkt[0], pkt[1])
+            print("cur",cur)
+            if cur in self.pkt_tracker:
+                self.pkt_tracker[cur] = sender_status.ACKED
+                acked += seq[1] - seq[0]
+            else:
+                import pdb; pdb.set_trace()
+                
+
+        sorted_pkts = sorted(self.pkt_tracker.keys(), key= lambda x: x[0])
+
+        lost = 0
+        found_ack = False
+        for i in range(len(sorted_pkts)-1, 0, -1):
+            interval = sorted_pkts[i]
+            if not found_ack and self.pkt_tracker[interval] == sender_status.ACKED:
+                print("found latest ack at interval", interval)
+                found_ack = True
+            if found_ack and self.pkt_tracker[interval] == sender_status.FLIGHT:
+                print("interval was lost", interval)
+                self.pkt_tracker[interval] == sender_status.NOT_SENT
+                lost += (interval[1] - interval[0])
+
+
 
         # TODO
-        return 0
+
+        print(f"acked {acked}")
+        print(f"lost {lost}")
+        return lost + acked
 
     def send(self, packet_id: int) -> Optional[Tuple[int, int]]:
         '''Called just before we are going to send a data packet. Should
@@ -111,9 +195,17 @@ class Sender:
         acknowledged
 
         '''
+        
+        seq = (packet_id*payload_size, min((packet_id+1) *payload_size, self.data_len))
 
-        # TODO
-        pass
+        if seq[0] < seq[1] and self.pkt_tracker[seq] == sender_status.NOT_SENT: 
+            self.pkt_tracker[seq] = sender_status.FLIGHT
+            return seq
+
+        for pkt, status in self.pkt_tracker.items():
+            if status == sender_status.FLIGHT: return (0,0)
+        
+        return None
 
 
 def start_receiver(ip: str, port: int):
@@ -304,7 +396,7 @@ def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float
                         continue
 
                     inflight -= sender.ack_packet(received["sacks"], received["id"])
-                    assert inflight >= 0
+                    assert inflight >= 0, sender.pkt_tracker
                 except socket.timeout:
                     inflight = 0
                     print("Timeout")
