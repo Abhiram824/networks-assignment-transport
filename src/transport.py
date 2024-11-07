@@ -19,7 +19,7 @@ class Receiver:
     def __init__(self):
         # TODO: Initialize any variables you want here, like the receive buffer
         self.buffer: List[Tuple[int, int, str]] = []
-        self.last_user_ack = 0
+        self.start_data_ptr = 0
         pass
 
     def data_packet(self, seq_range: Tuple[int, int], data: str) -> Tuple[List[Tuple[int, int]], str]:
@@ -49,28 +49,41 @@ class Receiver:
         program.
 
         '''
-        print("seq_range", seq_range)
-        prev_ack = self.last_user_ack
+        # check if seq_range is already in buffer
+        found = False
+        # for interval in self.buffer:
+        #     if seq_range[0] == interval[0] and seq_range[1] == interval[1]:
+        #         found = True
+        # if not found:
         self.buffer.append((seq_range[0], seq_range[1], data))
         self.buffer = sorted(self.buffer, key= lambda x: x[0])
         remove_idxs = []
         data_sent = ""
         for i, packet in enumerate(self.buffer):
-            if packet[0] > self.last_user_ack:
+            if packet[0] > self.start_data_ptr:
                 break
-            else: 
+            elif packet[0] == self.start_data_ptr:        
                 data_sent += packet[2]
-                self.last_user_ack = packet[1]
+                self.start_data_ptr = packet[1]
                 remove_idxs.append(i)
-                
-        self.buffer = [pkt for i, pkt in enumerate(self.buffer) if i not in remove_idxs]
+            else:
+                remove_idxs.append(i)
+        # self.buffer = [pkt for i, pkt in enumerate(self.buffer) if i not in remove_idxs]
 
-        sent = [(prev_ack, self.last_user_ack)] if self.last_user_ack != prev_ack else []
+        sent = []
         for interval in self.buffer:
             assert interval[0] < interval[1]
             sent.append((interval[0], interval[1]))
-
-        return (sent, data_sent)
+        # combine tuples if start of one is equal to end of another
+        i = 0
+        sent = sorted(sent, key= lambda x: x[0])
+        while i < len(sent)-1:
+            if sent[i][1] == sent[i+1][0]:
+                sent[i] = (sent[i][0], sent[i+1][1])
+                sent.pop(i+1)
+            else:
+                i += 1
+        return ([seq_range], data_sent)
 
         
         # return ([0, 0], '')  # Replace this
@@ -108,10 +121,9 @@ class Sender:
         # sent, acknowledged, detected to be lost or retransmitted
         self.data_len = data_len
         pkts = data_len//payload_size
-        if pkts%payload_size != 0: pkts+=1
+        if data_len%payload_size != 0: pkts+=1
 
         self.pkt_tracker = {}
-
         for i in range(0, pkts):
             self.pkt_tracker[(i*payload_size, min((i+1)*payload_size, self.data_len))] = sender_status.NOT_SENT
 
@@ -136,7 +148,6 @@ class Sender:
         600, even if 1000s of bytes have been ACKed before this.
 
         '''
-        print(sacks)
         increments = []
         for seq in sacks:
             if seq[1]-seq[0] > payload_size:
@@ -154,13 +165,10 @@ class Sender:
 
         for pkt in increments:
             cur = (pkt[0], pkt[1])
-            print("cur",cur)
-            if cur in self.pkt_tracker:
+            assert cur in self.pkt_tracker, f"invalid range, {cur}"
+            if self.pkt_tracker[cur] == sender_status.FLIGHT:
                 self.pkt_tracker[cur] = sender_status.ACKED
                 acked += seq[1] - seq[0]
-            else:
-                import pdb; pdb.set_trace()
-                
 
         sorted_pkts = sorted(self.pkt_tracker.keys(), key= lambda x: x[0])
 
@@ -169,19 +177,12 @@ class Sender:
         for i in range(len(sorted_pkts)-1, 0, -1):
             interval = sorted_pkts[i]
             if not found_ack and self.pkt_tracker[interval] == sender_status.ACKED:
-                print("found latest ack at interval", interval)
                 found_ack = True
             if found_ack and self.pkt_tracker[interval] == sender_status.FLIGHT:
-                print("interval was lost", interval)
-                self.pkt_tracker[interval] == sender_status.NOT_SENT
+                self.pkt_tracker[interval] = sender_status.NOT_SENT
                 lost += (interval[1] - interval[0])
 
 
-
-        # TODO
-
-        print(f"acked {acked}")
-        print(f"lost {lost}")
         return lost + acked
 
     def send(self, packet_id: int) -> Optional[Tuple[int, int]]:
@@ -196,11 +197,11 @@ class Sender:
 
         '''
         
-        seq = (packet_id*payload_size, min((packet_id+1) *payload_size, self.data_len))
 
-        if seq[0] < seq[1] and self.pkt_tracker[seq] == sender_status.NOT_SENT: 
-            self.pkt_tracker[seq] = sender_status.FLIGHT
-            return seq
+        for pkt, status in self.pkt_tracker.items():
+            if status == sender_status.NOT_SENT:
+                self.pkt_tracker[pkt] = sender_status.FLIGHT
+                return pkt
 
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.FLIGHT: return (0,0)
