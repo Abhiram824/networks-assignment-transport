@@ -1,10 +1,10 @@
 import argparse
 import json
+from typing import Dict, List, Optional, Tuple
 import random
 import socket
-import time
-from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
+import time
 
 # Note: In this starter code, we annotate types where
 # appropriate. While it is optional, both in python and for this
@@ -15,11 +15,10 @@ payload_size = 1200
 # The maximum size of a packet including all the JSON formatting
 packet_size = 1500
 
+
 class Receiver:
     def __init__(self):
-        # TODO: Initialize any variables you want here, like the receive
-        # buffer, initial congestion window and initial values for the timeout
-        # values
+        # TODO: Initialize any variables you want here, like the receive buffer
         self.buffer: List[Tuple[int, int, str]] = []
         self.start_data_ptr = 0
         pass
@@ -39,7 +38,7 @@ class Receiver:
         that if bytes in sequence numbers 0-10000 and 11000-15000 have
         been received, only 0-10000 must be sent to the application,
         since if we send the latter bytes, we will not be able to send
-        bytes 10000-11000 in order when they arrive. The transport
+        bytes 10000-11000 in order when they arrive. The solution
         layer must hide hide all packet reordering and loss.
 
         The ultimate behavior of the program should be that the data
@@ -94,7 +93,7 @@ class Receiver:
         '''Called when the sender sends the `fin` packet. You don't need to do
         anything in particular here. You can use it to check that all
         data has already been sent to the application at this
-        point. If not, there is a bug in the code. A real transport
+        point. If not, there is a bug in the code. A real solution
         stack will deallocate the receive buffer. Note, this may not
         be called if the fin packet from the sender is locked. You can
         read up on "TCP connection termination" to know more about how
@@ -114,7 +113,7 @@ class sender_status(Enum):
 class Sender:
     def __init__(self, data_len: int):
         '''`data_len` is the length of the data we want to send. A real
-        transport will not force the application to pre-commit to the
+        solution will not force the application to pre-commit to the
         length of data, but we are ok with it.
 
         '''
@@ -133,8 +132,8 @@ class Sender:
 
     def timeout(self):
         '''Called when the sender times out.'''
-        # TODO: In addition to what you did in assignment 1, set cwnd to 1
-        # packet
+        # TODO: Read the relevant code in `start_sender` to figure out
+        # what you should do here
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.FLIGHT:
                 self.pkt_tracker[pkt] = sender_status.NOT_SENT
@@ -191,14 +190,14 @@ class Sender:
         '''Called just before we are going to send a data packet. Should
         return the range of sequence numbers we should send. If there
         are no more bytes to send, returns a zero range (i.e. the two
-        elements of the tuple are equal). Return None if there are no
+        elements of the tuple are equal). Returns None if there are no
         more bytes to send, and _all_ bytes have been
         acknowledged. Note: The range should not be larger than
         `payload_size` or contain any bytes that have already been
         acknowledged
 
         '''
-
+        
 
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.NOT_SENT:
@@ -210,11 +209,6 @@ class Sender:
         
         return None
 
-    def get_cwnd(self) -> int:
-        return packet_size
-
-    def get_rto(self) -> float:
-        return 1.
 
 def start_receiver(ip: str, port: int):
     '''Starts a receiver thread. For each source address, we start a new
@@ -243,20 +237,23 @@ def start_receiver(ip: str, port: int):
     constant across most machines). The Mahimahi network emulator also
     creates virtual interfaces that behave like real interfaces, but
     really only emulate a network link in software that shuttles
-    packets between different virtual interfaces.
+    packets between different virtual interfaces. Use `ifconfig` in a
+    terminal to find out what interfaces exist in your machine or
+    inside a Mahimahi shell
 
     '''
-    print("Starting receiver")
-    receivers: Dict[str, Receiver] = {}
 
+    receivers: Dict[str, Tuple[Receiver, Any]] = {}
+    received_data = ''
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server_socket:
         server_socket.bind((ip, port))
 
         while True:
+            print("======= Waiting =======")
             data, addr = server_socket.recvfrom(packet_size)
-            print(f"Received data from {addr}")
             if addr not in receivers:
-                receivers[addr] = Receiver()
+                outfile = None  # open(f'rcvd-{addr[0]}-{addr[1]}', 'w')
+                receivers[addr] = (Receiver(), outfile)
 
             received = json.loads(data.decode())
             if received["type"] == "data":
@@ -278,23 +275,30 @@ def start_receiver(ip: str, port: int):
                 # a byte structure given the data structure. However,
                 # for an internet standard, we usually want something
                 # more custom and hand-designed.
-                sacks, app_data = receivers[addr].data_packet(tuple(received["seq"]), received["payload"])
+                sacks, app_data = receivers[addr][0].data_packet(tuple(received["seq"]), received["payload"])
                 # Note: we immediately write the data to file
-                #receivers[addr][1].write(app_data)
+                # receivers[addr][1].write(app_data)
+                print(f"Received seq: {received['seq']}, id: {received['id']}, sending sacks: {sacks}")
+                received_data += app_data
 
                 # Send the ACK
                 server_socket.sendto(json.dumps({"type": "ack", "sacks": sacks, "id": received["id"]}).encode(), addr)
-
-
             elif received["type"] == "fin":
-                receivers[addr].finish()
+                receivers[addr][0].finish()
+                # Check if the file is received and send fin-ack
+                if received_data:
+                    print("received data (summary): ", received_data[:100], "...", len(received_data))
+                    # print("received file is saved into: ", receivers[addr][1].name)
+                    server_socket.sendto(json.dumps({"type": "fin"}).encode(), addr)
+                    received_data = ''
+
                 del receivers[addr]
 
             else:
                 assert False
-    print("Receiver finished")
 
-def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float):
+
+def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float, pkts_to_reorder: int):
     sender = Sender(len(data))
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client_socket:
@@ -302,26 +306,52 @@ def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float
         client_socket.connect((ip, port))
         # When waiting for packets when we call receivefrom, we
         # shouldn't wait more than 500ms
+        client_socket.settimeout(0.5)
 
         # Number of bytes that we think are inflight. We are only
         # including payload bytes here, which is different from how
         # TCP does things
         inflight = 0
-        packet_id  = 0
+        packet_id = 0
         wait = False
+        send_buf = []
 
         while True:
-            # Get the congestion condow
-            cwnd = sender.get_cwnd()
-
             # Do we have enough room in recv_window to send an entire
             # packet?
-            if inflight + packet_size <= min(recv_window, cwnd) and not wait:
+            if inflight + packet_size < recv_window and not wait:
                 seq = sender.send(packet_id)
+                got_fin_ack = False
                 if seq is None:
                     # We are done sending
+                    # print("#######send_buf#########: ", len(send_buf))
+                    if send_buf:
+                        random.shuffle(send_buf)
+                        for p in send_buf:
+                            client_socket.send(p)
+                        send_buf = []
                     client_socket.send('{"type": "fin"}'.encode())
-                    break
+                    try:
+                        print("======= Final Waiting =======")
+                        received = client_socket.recv(packet_size)
+                        received = json.loads(received.decode())
+                        if received["type"] == "ack":
+                            client_socket.send('{"type": "fin"}'.encode())
+                            continue
+                        elif received["type"] == "fin":
+                            print(f"Got FIN-ACK")
+                            got_fin_ack = True
+                            break
+                    except socket.timeout:
+                        inflight = 0
+                        print("Timeout")
+                        sender.timeout()
+                        exit(1)
+                    if got_fin_ack:
+                        break
+                    else:
+                        continue
+
                 elif seq[1] == seq[0]:
                     # No more packets to send until loss happens. Wait
                     wait = True
@@ -329,16 +359,26 @@ def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float
 
                 assert seq[1] - seq[0] <= payload_size
                 assert seq[1] <= len(data)
+                print(f"Sending seq: {seq}, id: {packet_id}")
 
                 # Simulate random loss before sending packets
                 if random.random() < simloss:
-                    pass
+                    print("Dropped!")
                 else:
-                    # Send the packet
-                    client_socket.send(
-                        json.dumps(
-                            {"type": "data", "seq": seq, "id": packet_id, "payload": data[seq[0]:seq[1]]}
-                        ).encode())
+                    pkt_str = json.dumps(
+                        {"type": "data", "seq": seq, "id": packet_id, "payload": data[seq[0]:seq[1]]}
+                    ).encode()
+                    # pkts_to_reorder is a variable that bounds the maximum amount of reordering. To disable reordering, set to 1
+                    if len(send_buf) < pkts_to_reorder:
+                        send_buf += [pkt_str]
+
+                    if len(send_buf) == pkts_to_reorder:
+                        # Randomly shuffle send_buf
+                        random.shuffle(send_buf)
+
+                        for p in send_buf:
+                            client_socket.send(p)
+                        send_buf = []
 
                 inflight += seq[1] - seq[0]
                 packet_id += 1
@@ -347,17 +387,18 @@ def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float
                 wait = False
                 # Wait for ACKs
                 try:
-                    rto = sender.get_rto()
-                    client_socket.settimeout(rto)
-                    received_bytes = client_socket.recv(packet_size)
-                    received = json.loads(received_bytes.decode())
+                    print("======= Waiting =======")
+                    received = client_socket.recv(packet_size)
+                    received = json.loads(received.decode())
                     assert received["type"] == "ack"
 
+                    print(f"Got ACK sacks: {received['sacks']}, id: {received['id']}")
                     if random.random() < simloss:
+                        print("Dropped ack!")
                         continue
 
                     inflight -= sender.ack_packet(received["sacks"], received["id"])
-                    assert inflight >= 0
+                    assert inflight >= 0, sender.pkt_tracker
                 except socket.timeout:
                     inflight = 0
                     print("Timeout")
@@ -369,9 +410,12 @@ def main():
     parser.add_argument("role", choices=["sender", "receiver"], help="Role to play: 'sender' or 'receiver'")
     parser.add_argument("--ip", type=str, required=True, help="IP address to bind/connect to")
     parser.add_argument("--port", type=int, required=True, help="Port number to bind/connect to")
-    parser.add_argument("--sendfile", type=str, required=False, help="If role=sender, the file that contains data to send")
-    parser.add_argument("--recv_window", type=int, default=15000000, help="Receive window size in bytes")
-    parser.add_argument("--simloss", type=float, default=0.0, help="Simulate packet loss. Provide the fraction of packets (0-1) that should be randomly dropped")
+    parser.add_argument("--sendfile", type=str, required=False,
+                        help="If role=sender, the file that contains data to send")
+    parser.add_argument("--recv_window", type=int, default=15000, help="Receive window size in bytes")
+    parser.add_argument("--simloss", type=float, default=0.0,
+                        help="Simulate packet loss. Provide the fraction of packets (0-1) that should be randomly dropped")
+    parser.add_argument("--pkts_to_reorder", type=int, default=1, help="Number of packets to shuffle randomly")
 
     args = parser.parse_args()
 
@@ -384,7 +428,8 @@ def main():
 
         with open(args.sendfile, 'r') as f:
             data = f.read()
-            start_sender(args.ip, args.port, data, args.recv_window, args.simloss)
+            start_sender(args.ip, args.port, data, args.recv_window, args.simloss, args.pkts_to_reorder)
+
 
 if __name__ == "__main__":
     main()
