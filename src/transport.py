@@ -111,6 +111,9 @@ class sender_status(Enum):
     NOT_SENT = 2
 
 
+RTT_UPDATE_CONST = 4
+RTT_ALPHA = 1/64
+CWND_START = 10
 class Sender:
     def __init__(self, data_len: int):
         '''`data_len` is the length of the data we want to send. A real
@@ -128,13 +131,22 @@ class Sender:
         self.pkt_tracker = {}
         for i in range(0, pkts):
             self.pkt_tracker[(i*payload_size, min((i+1)*payload_size, self.data_len))] = sender_status.NOT_SENT
-
+        
+        self.packet_times = {}
+        self.rtt_avg = 0
+        self.rtt_var = 0
+        self.rto = 0
+        self.slow_start = False
+        self.first_loss = False
+        self.cwnd = 1 if self.slow_start else CWND_START
+        self.first_ack = False
         pass
 
     def timeout(self):
         '''Called when the sender times out.'''
         # TODO: In addition to what you did in assignment 1, set cwnd to 1
         # packet
+        self.cwnd = 1
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.FLIGHT:
                 self.pkt_tracker[pkt] = sender_status.NOT_SENT
@@ -150,6 +162,12 @@ class Sender:
         600, even if 1000s of bytes have been ACKed before this.
 
         '''
+        start_time = self.packet_times[packet_id]
+        rtt = time.process_time() - start_time
+        self.rtt_avg = (1-RTT_ALPHA)*self.rtt_avg + RTT_ALPHA*rtt
+        self.rtt_var = (1-RTT_ALPHA)*self.rtt_var + RTT_ALPHA*abs(rtt-self.rtt_avg)
+        self.rto = self.rtt_avg + 4*self.rtt_var
+        self.first_ack = True
         increments = []
         for seq in sacks:
             if seq[1]-seq[0] > payload_size:
@@ -168,7 +186,7 @@ class Sender:
         for pkt in increments:
             cur = (pkt[0], pkt[1])
             assert cur in self.pkt_tracker, f"invalid range, {cur}"
-            if self.pkt_tracker[cur] == sender_status.FLIGHT:
+            if self.pkt_tracker[cur] == sender_status.FLIGHT or self.pkt_tracker[cur] == sender_status.NOT_SENT:
                 self.pkt_tracker[cur] = sender_status.ACKED
                 acked += seq[1] - seq[0]
 
@@ -184,6 +202,15 @@ class Sender:
                 self.pkt_tracker[interval] = sender_status.NOT_SENT
                 lost += (interval[1] - interval[0])
 
+        if lost > 0:
+            self.cwnd /= 2
+            self.cwnd = max(1, self.cwnd)
+        elif self.slow_start and not self.first_loss:
+            self.cwnd *= 2
+        else:
+            self.cwnd += 1
+        
+        self.first_loss = self.first_loss or lost > 0
 
         return lost + acked
 
@@ -203,6 +230,7 @@ class Sender:
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.NOT_SENT:
                 self.pkt_tracker[pkt] = sender_status.FLIGHT
+                self.packet_times[packet_id] = time.process_time()
                 return pkt
 
         for pkt, status in self.pkt_tracker.items():
@@ -211,10 +239,10 @@ class Sender:
         return None
 
     def get_cwnd(self) -> int:
-        return packet_size
+        return self.cwnd * packet_size
 
     def get_rto(self) -> float:
-        return 1.
+        return 1 if len(self.packet_times) < RTT_UPDATE_CONST or not self.first_ack else self.rto
 
 def start_receiver(ip: str, port: int):
     '''Starts a receiver thread. For each source address, we start a new
@@ -348,6 +376,7 @@ def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float
                 # Wait for ACKs
                 try:
                     rto = sender.get_rto()
+                    print(f"Setting timeout to {rto}")
                     client_socket.settimeout(rto)
                     received_bytes = client_socket.recv(packet_size)
                     received = json.loads(received_bytes.decode())
