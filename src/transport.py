@@ -53,11 +53,11 @@ class Receiver:
         '''
         # check if seq_range is already in buffer
         found = False
-        # for interval in self.buffer:
-        #     if seq_range[0] == interval[0] and seq_range[1] == interval[1]:
-        #         found = True
-        # if not found:
-        self.buffer.append((seq_range[0], seq_range[1], data))
+        for interval in self.buffer:
+            if seq_range[0] == interval[0] and seq_range[1] == interval[1]:
+                found = True
+        if not found:
+            self.buffer.append((seq_range[0], seq_range[1], data))
         self.buffer = sorted(self.buffer, key= lambda x: x[0])
         remove_idxs = []
         data_sent = ""
@@ -85,7 +85,7 @@ class Receiver:
                 sent.pop(i+1)
             else:
                 i += 1
-        return ([seq_range], data_sent)
+        return (sent + [seq_range], data_sent)
 
         
         # return ([0, 0], '')  # Replace this
@@ -163,7 +163,7 @@ class Sender:
 
         '''
         start_time = self.packet_times[packet_id]
-        rtt = time.process_time() - start_time
+        rtt = time.time() - start_time
         self.rtt_avg = (1-RTT_ALPHA)*self.rtt_avg + RTT_ALPHA*rtt
         self.rtt_var = (1-RTT_ALPHA)*self.rtt_var + RTT_ALPHA*abs(rtt-self.rtt_avg)
         self.rto = self.rtt_avg + 4*self.rtt_var
@@ -183,10 +183,16 @@ class Sender:
 
         acked = 0
 
+        valids = []
         for pkt in increments:
             cur = (pkt[0], pkt[1])
+            if self.pkt_tracker[cur] != sender_status.ACKED:
+                valids.append(pkt)
+
+        for pkt in valids:
+            cur = (pkt[0], pkt[1])
             assert cur in self.pkt_tracker, f"invalid range, {cur}"
-            if self.pkt_tracker[cur] == sender_status.FLIGHT or self.pkt_tracker[cur] == sender_status.NOT_SENT:
+            if self.pkt_tracker[cur] == sender_status.FLIGHT:
                 self.pkt_tracker[cur] = sender_status.ACKED
                 acked += seq[1] - seq[0]
 
@@ -205,9 +211,9 @@ class Sender:
         if lost > 0:
             self.cwnd /= 2
             self.cwnd = max(1, self.cwnd)
-        elif self.slow_start and not self.first_loss:
-            self.cwnd *= 2
+            # print("loss")
         else:
+            # print("no loss")
             self.cwnd += 1
         
         self.first_loss = self.first_loss or lost > 0
@@ -230,7 +236,7 @@ class Sender:
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.NOT_SENT:
                 self.pkt_tracker[pkt] = sender_status.FLIGHT
-                self.packet_times[packet_id] = time.process_time()
+                self.packet_times[packet_id] = time.time()
                 return pkt
 
         for pkt, status in self.pkt_tracker.items():
