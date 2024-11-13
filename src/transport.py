@@ -288,7 +288,7 @@ def start_receiver(ip: str, port: int):
 
         while True:
             data, addr = server_socket.recvfrom(packet_size)
-            print(f"Received data from {addr}")
+            # print(f"Received data from {addr}")
             if addr not in receivers:
                 receivers[addr] = Receiver()
 
@@ -382,7 +382,7 @@ def start_sender(ip: str, port: int, data: str, recv_window: int, simloss: float
                 # Wait for ACKs
                 try:
                     rto = sender.get_rto()
-                    print(f"Setting timeout to {rto}")
+                    # print(f"Setting timeout to {rto}")
                     client_socket.settimeout(rto)
                     received_bytes = client_socket.recv(packet_size)
                     received = json.loads(received_bytes.decode())
