@@ -132,8 +132,10 @@ class Sender:
         if data_len%payload_size != 0: pkts+=1
 
         self.pkt_tracker = {}
+        self.pkt_loss_dupacks = {}
         for i in range(0, pkts):
             self.pkt_tracker[(i*payload_size, min((i+1)*payload_size, self.data_len))] = sender_status.NOT_SENT
+            self.pkt_loss_dupacks[(i*payload_size, min((i+1)*payload_size, self.data_len))] = 0
         
         self.packet_times = {}
         self.rtt_avg = 0
@@ -153,6 +155,7 @@ class Sender:
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.FLIGHT:
                 self.pkt_tracker[pkt] = sender_status.NOT_SENT
+                self.pkt_loss_dupacks[pkt] = 0
 
     def ack_packet(self, sacks: List[Tuple[int, int]], packet_id: int) -> int:
         '''Called every time we get an acknowledgment. The argument is a list
@@ -208,8 +211,11 @@ class Sender:
             if not found_ack and self.pkt_tracker[interval] == sender_status.ACKED:
                 found_ack = True
             if found_ack and self.pkt_tracker[interval] == sender_status.FLIGHT:
-                self.pkt_tracker[interval] = sender_status.NOT_SENT
-                lost += (interval[1] - interval[0])
+                self.pkt_loss_dupacks[interval] += 1
+                if self.pkt_loss_dupacks[interval] >= 3:
+                    self.pkt_tracker[interval] = sender_status.NOT_SENT
+                    lost += (interval[1] - interval[0])
+                    self.pkt_loss_dupacks[interval] = 0
 
         if lost > 0:
             self.cwnd /= 2
@@ -238,6 +244,7 @@ class Sender:
 
         for pkt, status in self.pkt_tracker.items():
             if status == sender_status.NOT_SENT:
+                assert self.pkt_loss_dupacks[pkt] == 0, "packet not sent but dupacks is {}".format(self.pkt_loss_dupacks[pkt])
                 self.pkt_tracker[pkt] = sender_status.FLIGHT
                 self.packet_times[packet_id] = time.time()
                 return pkt
