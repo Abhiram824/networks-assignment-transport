@@ -104,6 +104,8 @@ class Receiver:
         '''
 
         # TODO
+        self.buffer: List[Tuple[int, int, str]] = []
+        self.start_data_ptr = 0
         pass
 
 class sender_status(Enum):
