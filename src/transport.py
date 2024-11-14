@@ -85,7 +85,8 @@ class Receiver:
                 sent.pop(i+1)
             else:
                 i += 1
-        return (sent + [seq_range], data_sent)
+        ret = sent[:39] + [seq_range]
+        return (ret, data_sent)
 
         
         # return ([0, 0], '')  # Replace this
@@ -248,7 +249,7 @@ class Sender:
         return self.cwnd * packet_size
 
     def get_rto(self) -> float:
-        return 1 if len(self.packet_times) < RTT_UPDATE_CONST or not self.first_ack else self.rto
+        return .1 if len(self.packet_times) < RTT_UPDATE_CONST or not self.first_ack else self.rto
 
 def start_receiver(ip: str, port: int):
     '''Starts a receiver thread. For each source address, we start a new
